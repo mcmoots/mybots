@@ -1,5 +1,5 @@
-# initial project database
-db.sqlite3
+# saved state files
+*.pkl
 
 # system & vim stuff
 *.sw[pno]

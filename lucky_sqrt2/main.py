@@ -4,9 +4,10 @@
 from twitterbot import TwitterBot
 import yaml
 import random
+import sys
 
 class MyTwitterBot(TwitterBot):
-    def bot_init(self):
+    def bot_init(self, home='./'):
         """
         Initialize and configure your bot!
 
@@ -74,7 +75,7 @@ class MyTwitterBot(TwitterBot):
         # self.post_tweet(text)
         luck_texts = ["Fingers crossed.", "Where's my rabbit foot?", "My lucky number is irrational.", 
                     "A sweepstakes a day brings some junk to your door.", "Garlic protects from evil spirits."]
-        self.post_tweet(status=random.choice(luck_texts))
+        self.post_tweet(random.choice(luck_texts))
         return 1
         
 
@@ -98,9 +99,10 @@ class MyTwitterBot(TwitterBot):
 
         exclamations = ['Sweet', 'Awesome', 'Wahoo', 'OMG', 'Hooray', 'Hoorah', 
                         'Wow', 'ZOMGZ', 'Huzzah', 'Holy cannoli', 'Woohoo' ]
-        text = random.choice(exclamations) + '!'*random.randrange(1,4) 
-       
-        self.post_tweet(status=text, reply_to=tweet) 
+        text = random.choice(exclamations) + '!'*random.randrange(1,4)
+        text = prefix + ' ' + text       
+
+        self.post_tweet(text, reply_to=tweet) 
 
         return 1
 

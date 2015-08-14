@@ -70,13 +70,13 @@ class TwitterBot:
         self.screen_name = self.api.me().screen_name
 
         logging.basicConfig(format='%(asctime)s | %(levelname)s: %(message)s', datefmt='%m/%d/%Y %I:%M:%S %p', 
-            filename=self.screen_name + '.log',
+            filename=self.config['homedir'] + self.screen_name + '.log',
             level=self.config['logging_level'])
 
         logging.info('Initializing bot...')
 
         try:
-            with self.config['storage'].read(self.screen_name) as f:
+            with self.config['storage'].read(self.screen_name + '_state.pkl') as f:
                 self.state = pickle.load(f)
 
         except IOError:
@@ -131,7 +131,7 @@ class TwitterBot:
 
 
     def _save_state(self):
-        with self.config['storage'].write(self.screen_name) as f:
+        with self.config['storage'].write(self.screen_name + '_state.pkl') as f:
             pickle.dump(self.state, f)
             self.log('Bot state saved')
 
@@ -180,7 +180,8 @@ class TwitterBot:
 
     def post_tweet(self, text, reply_to=None, media=None):
         kwargs = {}
-        args = [text]
+        kwargs['status'] = text
+        args = []
         if media is not None:
             cmd = self.api.update_with_media
             args.insert(0, media)
@@ -423,7 +424,6 @@ class FileStorage(object):
     """
 
     def __init__(self, home):
-        super(FileStorage, self).__init__(*args **kwargs)
         self.rootdir = home
 
 
@@ -432,7 +432,7 @@ class FileStorage(object):
         Return an IO-like object that will produce binary data when read from.
         If nothing is stored under the given name, raise IOError.
         """
-        filename = self._get_filename(self.rootdir+name)
+        filename = self._get_filename(name)
         if os.path.exists(filename):
             logging.debug("Reading from {}".format(filename))
         else:
@@ -444,7 +444,7 @@ class FileStorage(object):
         """
         Return an IO-like object that will store binary data written to it.
         """
-        filename = self._get_filename(self.rootdir+name)
+        filename = self._get_filename(name)
         if os.path.exists(filename):
             logging.debug("Overwriting {}".format(filename))
         else:
@@ -453,4 +453,4 @@ class FileStorage(object):
 
 
     def _get_filename(self, name):
-        return '{}_state.pkl'.format(name)
+        return self.rootdir + name
