@@ -64,7 +64,7 @@ class TwitterBot:
 
         auth = tweepy.OAuthHandler(self.config['api_key'], self.config['api_secret'])
         auth.set_access_token(self.config['access_key'], self.config['access_secret'])
-        self.api = tweepy.API(auth)
+        self.api = tweepy.API(auth, wait_on_rate_limit=True)
 
         self.id = self.api.me().id
         self.screen_name = self.api.me().screen_name
@@ -485,4 +485,7 @@ class BotStreamListener(tweepy.StreamListener):
             # disconnect when exceeding the rate limit.
             # TODO: figure out how to call parent obj's logging method to log this.
             return False
+        else:
+            # keep the stream alive
+            return True
 

@@ -30,7 +30,7 @@ class MyTwitterBot(twitterbot.TwitterBot):
         self.config['tweet_interval_range'] = (5*60*60, 10*60*60)
         self.config['reply_direct_mention_only'] = False
         self.config['reply_followers_only'] = False
-        self.config['autofav_mentions'] = True
+        self.config['autofav_mentions'] = False
         self.config['autofav_keywords'] = []
         self.config['autofollow'] = False
 
@@ -57,18 +57,16 @@ class MyTwitterBot(twitterbot.TwitterBot):
 
         self.register_custom_handler(self.drop_old_follows, 12*60*60)
         self.register_custom_handler(self.reset_follow_count, 3*60*60)
+        self.register_custom_handler(self.reload_ignored_users, 2*60*60)
+        self.state['rejected_tweets_count'] = 0
         self.state['recent_follow_count'] = 0
+        self.ignored_users = []
 
 
     def bot_init2(self):
         """
         Super hacky. Call this in the bot init, after the API has been set up.
         """
-
-        # load the ignored users list
-        self.ignored_users = []
-        for user in tweepy.Cursor(self.api.list_members, 'luckysqrt2', 'ignore').items():
-            self.ignored_users.append(user.id)
 
         # Start the streaming API!
         self.listener = twitterbot.BotStreamListener(method=self.on_stream)
@@ -159,32 +157,79 @@ class MyTwitterBot(twitterbot.TwitterBot):
         """
         Defines action to take when streaming API returns a status obj. 
         """
-        # Check if it's really a contest
-        if not ic.is_contest(tweet):
-            return None
+        # Does the tweet contain a URL/reference pointing to another tweet?
+        tweet = self.chase_embedded_tweet_url(tweet)
+        self.check_and_retweet(tweet)
 
+
+    def chase_embedded_tweet_url(self, tweet):
+        """
+        Checks to see if the tweet is just linking to another tweet. 
+        If so, return that tweet. Or return the tweet to which the tweet is replying.
+        If not, return the original tweet.
+        """
+        if len(tweet.entities['urls']) == 0 and tweet.in_reply_to_status_id_str is None:
+            return tweet
+
+        if len(tweet.entities['urls']) == 0:
+            try:
+                tweet = self.api.get_status(id=tweet.in_reply_to_status_id_str)
+                return tweet
+            except tweepy.TweepError as e:
+                return tweet
+
+        for u in tweet.entities['urls']:
+            twitter = re.compile('https?://twitter\.com/', re.IGNORECASE)
+            if twitter.search(u['expanded_url']) is not None:            
+                # pull the status ID from the URL & retrieve it
+                re_status = re.compile('/status/(\d+)/?', re.IGNORECASE)
+                tweet_id = re_status.search(u['expanded_url']).groups()[0]
+                try:
+                    tweet = self.api.get_status(id=tweet_id)
+                    return tweet
+                except tweepy.TweepError as e:
+                    pass
+            
+        return tweet
+    
+
+    def check_and_retweet(self, tweet):
+        """
+        Takes a tweet, decides if it's a contest tweet, RTs it.
+        """
         # Check the ignored users list
         if tweet.user.id in self.ignored_users:
             return None
 
-        # Okay, cool. RT, follow, and fav.
-        self.api.retweet(tweet.id)
-        self.api.create_favorite(tweet.id)
+        # Check if it's really a contest
+        (rt_me, reject_reason) = ic.is_contest(tweet)
+        if rt_me == False:
+            self.state['rejected_tweets_count'] += 1
+            return None
 
-        # If we've been following a lot of ppl lately, require the word "follow" in the tweet.
-        if self.state['recent_follow_count'] < 12:
-            self.api.create_friendship(user_id=tweet.user.id)
-        elif self.state['recent_follow_count'] < 20:
-            follow = re.compile('follow', re.IGNORECASE)
-            FRT = re.compile('F ?[+&] ?RT', re.IGNORECASE)
-            RTF = re.compile('RT ?[+&] ?F', re.IGNORECASE)
-            if (follow.match(tweet.text) is not None 
-                or FRT.match(tweet.text) is not None 
-                or RTF.match(tweet.text) is not None):
-                self.api.create_friendship(user_id=tweet.user.id)
-        else:
-            # whoa yr following too fast, slow down!
-            time.sleep(5*60)
+        # Okay, cool. RT, follow, and fav.
+        try:
+            self.api.retweet(tweet.id)
+            self.api.create_favorite(tweet.id)
+
+            # If we've been following a lot of ppl lately, require an explicit follow request.
+            # TODO: detect pattern "follow @user" and follow @user also
+            if self.state['recent_follow_count'] < 10:
+                self.api.create_friendship(user_id = tweet.user.id)
+            elif self.state['recent_follow_count'] < 24:
+                follow = re.compile('follow', re.IGNORECASE)
+                FRT = re.compile('F ?[+&] ?RT', re.IGNORECASE)
+                RTF = re.compile('RT ?[+&] ?F', re.IGNORECASE)
+                if (follow.match(tweet.text) is not None 
+                    or FRT.match(tweet.text) is not None 
+                    or RTF.match(tweet.text) is not None):
+                    self.api.create_friendship(user_id=tweet.user.id)
+            else:
+                # whoa the bot is following too fast, slow down!
+                logging.info("Throttled a follow.")
+            
+        except tweepy.TweepError as e:
+            pass
 
 
     def drop_old_follows(self):
@@ -219,7 +264,16 @@ class MyTwitterBot(twitterbot.TwitterBot):
    
  
     def reset_follow_count(self):
+        text = "I've rejected {} not-quite-contest tweets in the past 3 hours.".format(self.state['rejected_tweets_count'])
+        self.post_tweet(text)
         self.state['recent_follow_count'] = 0 
+        self.state['rejected_tweets_count'] = 0
+
+
+    def reload_ignored_users(self):
+        self.ignored_users = []
+        for user in tweepy.Cursor(self.api.list_members, 'luckysqrt2', 'ignore').items():
+            self.ignored_users.append(user.id)
 
 
 if __name__ == '__main__':
