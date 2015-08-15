@@ -82,15 +82,14 @@ def is_contest(tweet):
     for r in clickhere_regexes:
         regex = re.compile(r, re.IGNORECASE)
         if regex.search(text) is not None:
-            return False('clickhere')
-
+            return (False, 'clickhere')
 
     # throw away shitty prizes
     shitty_prize_regexes = ["win a DM", "group DM", "solo DM", "mill account", "beta code"]
     for r in shitty_prize_regexes:
         regex = re.compile(r, re.IGNORECASE)
         if regex.search(text) is not None:
-            return False('shitty prize')
+            return (False, 'shitty prize')
 
     # Having run out of possible objections...
     return (True, 'real')
