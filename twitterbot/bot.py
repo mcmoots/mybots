@@ -100,6 +100,9 @@ class TwitterBot:
         self.state['new_followers'] = []
         self.state['last_follow_check'] = 0
 
+        # call the second custom initialization
+        self.bot_init2()
+
         logging.info('Bot initialized!')
 
 
@@ -108,6 +111,14 @@ class TwitterBot:
         Initialize custom state values for your bot.
         """
         raise NotImplementedError("You MUST have bot_init() implemented in your bot! What have you DONE!")
+
+    
+    def bot_init2(self):
+        """
+        Initialize stuff for your bot that requires the API to be in place.
+        You probably don't need this.
+        """
+        pass
 
 
     def log(self, message, level=logging.INFO):
@@ -141,7 +152,7 @@ class TwitterBot:
         Post a general tweet to own timeline.
         """
         #self.post_tweet(text)
-        raise NotImplementedError("You need to implement this to tweet to timeline (or pass if you don't want to)!")
+        raise NotImplementedError("You need to implement this to tweet to timeline (or pass)!")
 
 
     def on_mention(self, tweet, prefix):
@@ -149,7 +160,7 @@ class TwitterBot:
         Perform some action upon receiving a mention.
         """
         #self.post_tweet(text)
-        raise NotImplementedError("You need to implement this to reply to/fav mentions (or pass if you don't want to)!")
+        raise NotImplementedError("You need to implement this to reply to/fav mentions (or pass)!")
 
 
 
@@ -158,7 +169,7 @@ class TwitterBot:
         Perform some action on a tweet on the timeline.
         """
         #self.post_tweet(text)
-        raise NotImplementedError("You need to implement this to reply to/fav timeline tweets (or pass if you don't want to)!")
+        raise NotImplementedError("You need to implement this to reply to/fav timeline tweets (or pass)!")
 
 
     def on_follow(self, f_id):
@@ -400,7 +411,6 @@ class TwitterBot:
                 if self.config['tweet_interval_range'] is not None:
                     self.config['tweet_interval'] = random.randint(*self.config['tweet_interval_range'])
 
-                self.log("Next tweet in {} seconds".format(self.config['tweet_interval']))
                 self.state['last_tweet_time'] = time.time()
 
             # run custom action
@@ -454,3 +464,25 @@ class FileStorage(object):
 
     def _get_filename(self, name):
         return self.rootdir + name
+
+
+
+
+class BotStreamListener(tweepy.StreamListener):
+
+    def __init__(self, *args, **kwargs):
+        self.on_status_method = kwargs.pop('method')
+        super(BotStreamListener, self).__init__(*args, **kwargs)
+
+
+    def on_status(self, status):
+        result = self.on_status_method(status)
+        return result
+
+
+    def on_error(self, status_code):
+        if status_code in (420, 429):
+            # disconnect when exceeding the rate limit.
+            # TODO: figure out how to call parent obj's logging method to log this.
+            return False
+

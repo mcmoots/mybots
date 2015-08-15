@@ -1,12 +1,16 @@
 #!/usr/bin/env python2
 # -*- coding: utf-8 -*- #
 
-from twitterbot import TwitterBot
+import twitterbot
 import yaml
 import random
 import sys
+import re
+import time
+import identify_contests as ic
+import tweepy
 
-class MyTwitterBot(TwitterBot):
+class MyTwitterBot(twitterbot.TwitterBot):
     def bot_init(self, home='./'):
         """
         Initialize and configure your bot!
@@ -21,26 +25,13 @@ class MyTwitterBot(TwitterBot):
 
         self.config.update(tokens)
 
-
-        ######################################
         # SEMI-OPTIONAL: OTHER CONFIG STUFF! #
-        ######################################
-
-        # how often to tweet, in seconds
-        self.config['tweet_interval'] = None    # default: 30 minutes
-
-        # use this to define a (min, max) random range of how often to tweet
-        # e.g., self.config['tweet_interval_range'] = (5*60, 10*60) # tweets every 5-10 minutes
+        self.config['tweet_interval'] = 5*60*60   # default: 30 minutes
         self.config['tweet_interval_range'] = (5*60*60, 10*60*60)
-        # only reply to tweets that specifically mention the bot
         self.config['reply_direct_mention_only'] = False
-        # only include bot followers (and original tweeter) in @-replies
         self.config['reply_followers_only'] = False
-        # fav any tweets that mention this bot?
-        self.config['autofav_mentions'] = False
-        # fav any tweets containing these keywords?
+        self.config['autofav_mentions'] = True
         self.config['autofav_keywords'] = []
-        # follow back all followers?
         self.config['autofollow'] = False
 
 
@@ -64,6 +55,28 @@ class MyTwitterBot(TwitterBot):
         
         # self.register_custom_handler(self.my_function, 60 * 60 * 24)
 
+        self.register_custom_handler(self.drop_old_follows, 12*60*60)
+        self.register_custom_handler(self.reset_follow_count, 3*60*60)
+        self.state['recent_follow_count'] = 0
+
+
+    def bot_init2(self):
+        """
+        Super hacky. Call this in the bot init, after the API has been set up.
+        """
+
+        # load the ignored users list
+        self.ignored_users = []
+        for user in tweepy.Cursor(self.api.list_members, 'luckysqrt2', 'ignore').items():
+            self.ignored_users.append(user.id)
+
+        # Start the streaming API!
+        self.listener = twitterbot.BotStreamListener(method=self.on_stream)
+        self.stream = tweepy.Stream(auth=self.api.auth, listener=self.listener)
+        keyphrases = ["RT to win", "RT to enter", "retweet to win", "retweet to enter"]
+
+        self.stream.filter(track=keyphrases, async=True)
+
 
     def on_scheduled_tweet(self):
         """
@@ -76,7 +89,6 @@ class MyTwitterBot(TwitterBot):
         luck_texts = ["Fingers crossed.", "Where's my rabbit foot?", "My lucky number is irrational.", 
                     "A sweepstakes a day brings some junk to your door.", "Garlic protects from evil spirits."]
         self.post_tweet(random.choice(luck_texts))
-        return 1
         
 
     def on_mention(self, tweet, prefix):
@@ -97,14 +109,23 @@ class MyTwitterBot(TwitterBot):
         Twitter won't count it as a reply.
         """
 
+        winning_words = ['won', 'winner', 'congrats', 'congratulations', 'prize', 'win']
+        warnings = ['fake', 'scam', 'cheat', 'fraud', 'hoax', 'sucker']
         exclamations = ['Sweet', 'Awesome', 'Wahoo', 'OMG', 'Hooray', 'Hoorah', 
-                        'Wow', 'ZOMGZ', 'Huzzah', 'Holy cannoli', 'Woohoo' ]
-        text = random.choice(exclamations) + '!'*random.randrange(1,4)
+                        'Wow', 'ZOMGZ', 'Huzzah', 'Holy cannoli', 'Woohoo', 'Woot' ]
+
+        if sum([w in tweet.text.lower() for w in winning_words]) > 0:
+            text = random.choice(exclamations) + '!'*random.randrange(1,4)
+        
+        elif sum([w in tweet.text.lower() for w in warnings]) > 0:
+            text = "I'm just a bot, I don't have to be very smart."
+
+        else:
+            text = "Sorry, interactivity hasn't really been implemented yet."
+
         text = prefix + ' ' + text       
 
         self.post_tweet(text, reply_to=tweet) 
-
-        return 1
 
 
     def on_timeline(self, tweet, prefix):
@@ -132,6 +153,73 @@ class MyTwitterBot(TwitterBot):
         # if something:
         #     self.favorite_tweet(tweet)
         pass
+
+
+    def on_stream(self, tweet):
+        """
+        Defines action to take when streaming API returns a status obj. 
+        """
+        # Check if it's really a contest
+        if not ic.is_contest(tweet):
+            return None
+
+        # Check the ignored users list
+        if tweet.user.id in self.ignored_users:
+            return None
+
+        # Okay, cool. RT, follow, and fav.
+        self.api.retweet(tweet.id)
+        self.api.create_favorite(tweet.id)
+
+        # If we've been following a lot of ppl lately, require the word "follow" in the tweet.
+        if self.state['recent_follow_count'] < 12:
+            self.api.create_friendship(user_id=tweet.user.id)
+        elif self.state['recent_follow_count'] < 20:
+            follow = re.compile('follow', re.IGNORECASE)
+            FRT = re.compile('F ?[+&] ?RT', re.IGNORECASE)
+            RTF = re.compile('RT ?[+&] ?F', re.IGNORECASE)
+            if (follow.match(tweet.text) is not None 
+                or FRT.match(tweet.text) is not None 
+                or RTF.match(tweet.text) is not None):
+                self.api.create_friendship(user_id=tweet.user.id)
+        else:
+            # whoa yr following too fast, slow down!
+            time.sleep(5*60)
+
+
+    def drop_old_follows(self):
+        """
+        Unfollow the oldest-followed accounts (except those on a safe list).
+        """
+        max_following = random.randrange(1910,1960)
+        
+        safe_users = []
+        for user in tweepy.Cursor(self.api.list_members, 'luckysqrt2', 'cool-brands').items():
+            safe_users.append(user.id)
+
+        # the FIRST objs in the friend list are the most recently followed accounts.
+        # Drop from the LAST list items, if they are not in safe list.
+        
+        following = self.api.friends_ids()
+        num_following = len(following)
+        # loop from end to beginning of user list
+        i = -1
+        while num_following > max_following:
+            user = following[i]
+            if user in safe_users:
+                pass
+            else:
+                self.api.destroy_friendship(user_id=user)
+                num_following += -1
+            i += -1
+            # break if we loop back around to the beginning.
+            # TODO: This means the safe users list is too long & requires human action!
+            if i + len(following) == 0:
+                break
+   
+ 
+    def reset_follow_count(self):
+        self.state['recent_follow_count'] = 0 
 
 
 if __name__ == '__main__':
