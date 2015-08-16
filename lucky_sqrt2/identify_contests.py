@@ -26,9 +26,21 @@ def is_contest(tweet):
     if rt4.match(tweet.text) is not None:
         return(False, 'manual RT')
 
+    rt5 = re.compile('RT:', re.IGNORECASE)
+    if rt5.match(tweet.text) is not None:
+        return(False, 'manual RT')
+
     rtchain = re.compile('\S ?: \S ?:', re.IGNORECASE)
     if rtchain.match(tweet.text) is not None:
         return(False, 'manual RT')
+
+    rtchain2 = re.compile('RT')
+    if len(rtchain2.findall(tweet.text)) > 2:
+        return(False, 'manual RT')
+
+    #TODO: Catch these. 
+    # RT XFilesFanaticus RT letsrage: RETWEET & FOLLOW for your chance to win our ALIYAH SWEATSHIRT! 
+    # Win! Follow @CultBoxTV and RT for chance to win one of 4 x 'The Water Diviner' on Blu-ray
 
     # Throw away tweets that are direct @replies
     reply = re.compile('\.?@\S+', re.IGNORECASE)
@@ -62,7 +74,7 @@ def is_contest(tweet):
         return (False, 'UK')
 
     # throw away people who announce they just entered the contest
-    announce1 = re.compile("i('ve)? (just)? entered")
+    announce1 = re.compile("i('ve)? (just )?entered")
     announce2 = re.compile("i'm entering")
     if announce1.search(text) is not None or announce2.search(text) is not None:
         return (False, 'announce')
@@ -70,7 +82,7 @@ def is_contest(tweet):
     # throw away people campaigning for someone else to win a thing
     campaign_regexes = ["needs? to win", "deserves? to win", "(yo)?u please RT", "can (yo)?u RT",
                         "(yo)?u please retweet", "can (yo)?u retweet", "trying to win", "help",
-                        "I want", "I would like", "if you want \S+ to win"
+                        "I (really )?want", "I would like", "if you want \S+ to win", "fight to win"
                         ]
     for r in campaign_regexes:
         regex = re.compile(r, re.IGNORECASE)

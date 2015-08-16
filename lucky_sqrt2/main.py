@@ -9,6 +9,7 @@ import re
 import time
 import identify_contests as ic
 import tweepy
+from httplib import IncompleteRead
 
 class MyTwitterBot(twitterbot.TwitterBot):
     def bot_init(self, home='./'):
@@ -70,11 +71,13 @@ class MyTwitterBot(twitterbot.TwitterBot):
 
         # Start the streaming API!
         self.listener = twitterbot.BotStreamListener(method=self.on_stream)
-        self.stream = tweepy.Stream(auth=self.api.auth, listener=self.listener)
-        keyphrases = ["RT to win", "RT to enter", "retweet to win", "retweet to enter"]
+        try:
+            self.stream = tweepy.Stream(auth=self.api.auth, listener=self.listener)
+            keyphrases = ["RT to win", "RT to enter", "retweet to win", "retweet to enter"]
 
-        self.stream.filter(track=keyphrases, async=True)
-
+            self.stream.filter(track=keyphrases, async=True)
+        except:
+            pass
 
     def on_scheduled_tweet(self):
         """
@@ -207,30 +210,7 @@ class MyTwitterBot(twitterbot.TwitterBot):
             self.state['rejected_tweets_count'] += 1
             return None
 
-        # Okay, cool. RT, follow, and fav.
-        try:
-            self.api.retweet(tweet.id)
-            self.api.create_favorite(tweet.id)
-
-            # If we've been following a lot of ppl lately, require an explicit follow request.
-            # TODO: detect pattern "follow @user" and follow @user also
-            if self.state['recent_follow_count'] < 10:
-                self.api.create_friendship(user_id = tweet.user.id)
-            elif self.state['recent_follow_count'] < 24:
-                follow = re.compile('follow', re.IGNORECASE)
-                FRT = re.compile('F ?[+&] ?RT', re.IGNORECASE)
-                RTF = re.compile('RT ?[+&] ?F', re.IGNORECASE)
-                if (follow.match(tweet.text) is not None 
-                    or FRT.match(tweet.text) is not None 
-                    or RTF.match(tweet.text) is not None):
-                    self.api.create_friendship(user_id=tweet.user.id)
-            else:
-                # whoa the bot is following too fast, slow down!
-                logging.info("Throttled a follow.")
-            
-        except tweepy.TweepError as e:
-            pass
-
+        # TODO: Do something with the results.
 
     def drop_old_follows(self):
         """
